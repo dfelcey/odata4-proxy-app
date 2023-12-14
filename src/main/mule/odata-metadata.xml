@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit-odata="http://www.mulesoft.org/schema/mule/apikit-odata" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/apikit-odata http://www.mulesoft.org/schema/mule/apikit-odata/current/mule-apikit-odata.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd 
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+  <apikit-odata:config name="odata-metadata-config" apiDefinition="api/odata-metadata.csdl.xml" />
+  <http:listener-config name="HTTP_Listener_Config">
+    <http:listener-connection host="0.0.0.0" port="8081" />
+  </http:listener-config>
+  <salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config" doc:id="18f52eb6-3136-47bd-ad06-fc865bfc8993" >
+    <salesforce:basic-connection username="dfelcey@dfelcey-220208-239.demo" password="Welcome1!" securityToken="Ievo7HYFk8p2TZcLnHRZQaoLq" />
+  </salesforce:sfdc-config>
+  <http:request-config name="HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="e6739bb6-11fe-4e2f-bc4c-ec20593b79e9" basePath="/api">
+		<http:request-connection protocol="HTTPS" host="apikit-odata4-example-latest-051223-4v89mk.5sc6y6-4.usa-e2.cloudhub.io" port="443" />
+	</http:request-config>
+	<flow name="main-odata-flow">
+    <http:listener config-ref="HTTP_Listener_Config" path="/api/*">
+      <http:response statusCode="#[attributes.statusCode default 200]">
+        <http:headers>#[attributes.headers default {}]</http:headers>
+      </http:response>
+      <http:error-response statusCode="#[vars.statusCode default 500]">
+        <http:body>#[payload]</http:body>
+        <http:headers>#[vars.headers default {}]</http:headers>
+      </http:error-response>
+    </http:listener>
+    <apikit-odata:route config-ref="odata-metadata-config">
+      <apikit-odata:http-request-parameters listenerPath="#[attributes.listenerPath]" method="#[attributes.method]" scheme="#[upper(attributes.scheme)]" host="#[attributes.headers.'host']" httpHeaders="#[attributes.headers]" queryString="#[(attributes.rawRequestUri scan /(?&lt;=^[^#?]*\?)[^#]*/)[0][0] default '']" maskedRequestPath="#[attributes.maskedRequestPath]" />
+    </apikit-odata:route>
+    <error-handler name="Error_Handler">
+      <on-error-propagate name="On_Error_Propagate" enableNotifications="true" logException="true" type="MULE:ANY">
+        <ee:transform>
+          <ee:message>
+            <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	error: {
+		code: error.errorMessage.payload.code default "UNKNOWN",
+		message: error.errorMessage.payload.message default error.description,
+		target: error.errorMessage.payload.target,
+		details: error.errorMessage.payload.details default [{code: "UNKNOWN", message: error.detailedDescription, target: null}],
+		innererror: error.errorMessage.payload.innerError default error.childErrors
+	}
+}]]></ee:set-payload>
+          </ee:message>
+          <ee:variables>
+            <ee:set-variable variableName="statusCode"><![CDATA[error.errorMessage.payload.statusCode default 500]]></ee:set-variable>
+          </ee:variables>
+        </ee:transform>
+      </on-error-propagate>
+    </error-handler>
+  </flow>
+  <flow name="GET\Customers\ENTITY">
+    <apikit-odata:request-entity-listener config-ref="odata-metadata-config" path="/Customers" method="GET" />
+    <logger level="INFO" message="In GET\Customers\ENTITY flow" />
+    <set-variable value="#[attributes.odataHttpAttributes.rawOdataPath]" doc:name="Set Variable path" doc:id="611861d1-4146-4a6f-9945-b68164c4e99a" variableName="odataPath"/>
+		<set-variable value="#[attributes.entitySetName]" doc:name="Set Variable entitySetName" doc:id="ce43f757-ea3c-436c-844f-bd512ed02165" variableName="entitySetName" />
+		<set-variable value="#[attributes.odataRequestAttributes]" doc:name="Set Variable odataRequestAttributes" doc:id="4aabac3d-a1aa-4bef-a2fb-8106d46ec250" variableName="odataRequestAttributes" />
+		<set-variable value="#[payload.CustomerID]" doc:name="Set Variable CustomerID" doc:id="d8d7c754-93bc-4260-9498-a69c6b226754" variableName="customerID" />
+		<scatter-gather doc:name="Scatter-Gather" doc:id="9620f303-822b-486d-aa1f-2cbc44ae4ff2" >
+			<route >
+				<ee:transform doc:name="Transform Message1" doc:id="3f252ecc-2ba3-4001-8e40-6f82f342f2b1">
+			<ee:message>
+				<ee:set-payload resource="dataweaves/sql/sql_insert_entity.dwl" />
+			</ee:message>
+		</ee:transform>
+				<salesforce:query doc:name="Query" doc:id="fee925f7-93e8-47df-9554-eed792aa4622" config-ref="Salesforce_Config">
+					<salesforce:salesforce-query ><![CDATA[#[payload]]]></salesforce:salesforce-query>
+				</salesforce:query>
+			</route>
+			<route >
+				<http:request method="GET" doc:name="Request" doc:id="630f2526-24a3-401d-bb78-6aa359109ba9" config-ref="HTTP_Request_configuration" path="#['/' ++ vars.odataPath as String]">
+					<http:query-params ><![CDATA[#[output application/java
+---
+{
+	"Accepts": "application/json",
+	"Content-Type": "application/json"
+}]]]></http:query-params>
+				</http:request>
+			</route>
+		</scatter-gather>
+		<ee:transform doc:name="Transform Message" doc:id="f9804bc1-0a8e-4cab-90c1-a9cdba3cece1" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+{
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<apikit-odata:serialize-entity config-ref="odata-metadata-config" path="/Customers" method="GET">
+      <apikit-odata:inbound-content>#[%dw 2.0 output application/json --- payload]</apikit-odata:inbound-content>
+    </apikit-odata:serialize-entity>
+  </flow>
+  <flow name="POST\Customers\ENTITY">
+    <apikit-odata:request-entity-listener config-ref="odata-metadata-config" path="/Customers" method="POST" />
+    <logger level="INFO" message="In POST\Customers\ENTITY flow" />
+    <apikit-odata:serialize-entity config-ref="odata-metadata-config" path="/Customers" method="POST">
+      <apikit-odata:inbound-content>#[%dw 2.0 output application/json --- payload]</apikit-odata:inbound-content>
+    </apikit-odata:serialize-entity>
+  </flow>
+  <flow name="PATCH\Customers\ENTITY">
+    <apikit-odata:request-entity-listener config-ref="odata-metadata-config" path="/Customers" method="PATCH" />
+    <logger level="INFO" message="In PATCH\Customers\ENTITY flow" />
+    <apikit-odata:serialize-entity config-ref="odata-metadata-config" path="/Customers" method="PATCH">
+      <apikit-odata:inbound-content>#[%dw 2.0 output application/json --- payload]</apikit-odata:inbound-content>
+    </apikit-odata:serialize-entity>
+  </flow>
+  <flow name="PUT\Customers\ENTITY">
+    <apikit-odata:request-entity-listener config-ref="odata-metadata-config" path="/Customers" method="PUT" />
+    <logger level="INFO" message="In PUT\Customers\ENTITY flow" />
+    <apikit-odata:serialize-entity config-ref="odata-metadata-config" path="/Customers" method="PUT">
+      <apikit-odata:inbound-content>#[%dw 2.0 output application/json --- payload]</apikit-odata:inbound-content>
+    </apikit-odata:serialize-entity>
+  </flow>
+  <flow name="DELETE\Customers\ENTITY">
+    <apikit-odata:request-entity-listener config-ref="odata-metadata-config" path="/Customers" method="DELETE" />
+    <logger level="INFO" message="In DELETE\Customers\ENTITY flow" />
+  </flow>
+  <flow name="GET\Customers\ENTITY_COLLECTION">
+    <apikit-odata:request-entity-collection-listener config-ref="odata-metadata-config" path="/Customers" method="GET" />
+    <logger level="INFO" message="In GET\Customers\ENTITY_COLLECTION flow" />
+    <apikit-odata:serialize-entity-collection config-ref="odata-metadata-config" path="/Customers" method="GET">
+      <apikit-odata:inbound-content>#[%dw 2.0 output application/json --- { "value": payload }]</apikit-odata:inbound-content>
+    </apikit-odata:serialize-entity-collection>
+  </flow>
+  <flow name="GET\Orders\ENTITY">
+    <apikit-odata:request-entity-listener config-ref="odata-metadata-config" path="/Orders" method="GET" />
+    <logger level="INFO" message="In GET\Orders\ENTITY flow" />
+    <apikit-odata:serialize-entity config-ref="odata-metadata-config" path="/Orders" method="GET">
+      <apikit-odata:inbound-content>#[%dw 2.0 output application/json --- payload]</apikit-odata:inbound-content>
+    </apikit-odata:serialize-entity>
+  </flow>
+  <flow name="POST\Orders\ENTITY">
+    <apikit-odata:request-entity-listener config-ref="odata-metadata-config" path="/Orders" method="POST" />
+    <logger level="INFO" message="In POST\Orders\ENTITY flow" />
+    <apikit-odata:serialize-entity config-ref="odata-metadata-config" path="/Orders" method="POST">
+      <apikit-odata:inbound-content>#[%dw 2.0 output application/json --- payload]</apikit-odata:inbound-content>
+    </apikit-odata:serialize-entity>
+  </flow>
+  <flow name="PATCH\Orders\ENTITY">
+    <apikit-odata:request-entity-listener config-ref="odata-metadata-config" path="/Orders" method="PATCH" />
+    <logger level="INFO" message="In PATCH\Orders\ENTITY flow" />
+    <apikit-odata:serialize-entity config-ref="odata-metadata-config" path="/Orders" method="PATCH">
+      <apikit-odata:inbound-content>#[%dw 2.0 output application/json --- payload]</apikit-odata:inbound-content>
+    </apikit-odata:serialize-entity>
+  </flow>
+  <flow name="PUT\Orders\ENTITY">
+    <apikit-odata:request-entity-listener config-ref="odata-metadata-config" path="/Orders" method="PUT" />
+    <logger level="INFO" message="In PUT\Orders\ENTITY flow" />
+    <apikit-odata:serialize-entity config-ref="odata-metadata-config" path="/Orders" method="PUT">
+      <apikit-odata:inbound-content>#[%dw 2.0 output application/json --- payload]</apikit-odata:inbound-content>
+    </apikit-odata:serialize-entity>
+  </flow>
+  <flow name="DELETE\Orders\ENTITY">
+    <apikit-odata:request-entity-listener config-ref="odata-metadata-config" path="/Orders" method="DELETE" />
+    <logger level="INFO" message="In DELETE\Orders\ENTITY flow" />
+  </flow>
+  <flow name="GET\Orders\ENTITY_COLLECTION">
+    <apikit-odata:request-entity-collection-listener config-ref="odata-metadata-config" path="/Orders" method="GET" />
+    <logger level="INFO" message="In GET\Orders\ENTITY_COLLECTION flow" />
+    <apikit-odata:serialize-entity-collection config-ref="odata-metadata-config" path="/Orders" method="GET">
+      <apikit-odata:inbound-content>#[%dw 2.0 output application/json --- { "value": payload }]</apikit-odata:inbound-content>
+    </apikit-odata:serialize-entity-collection>
+  </flow>
+</mule>
